@@ -1,37 +1,40 @@
 #!/bin/bash
-#
-# Configure OpenLDAP server on Centos 7
+# This script will configure openldap server on Centos and RHEL 7
 # The hostname should be defined as per DC1 and DC2 in the inputs file
-
+####################################################################################
 # Start of user inputs
-#########################################################################################
+####################################################################################
 PASSWORD="redhat"
 
-# Use migration tools file to add users to LDAP database
+# Use migration tools file or a custom script to add users to LDAP database
 #USEMIGRATIONTOOLS="no"
 USEMIGRATIONTOOLS="yes"
 
 # Check if the user and group information was successfully added to the LDAP DB
 #DBTESTING="yes"
 DBTESTING="no"
-#########################################################################################
+####################################################################################
 # End of user inputs
 
 
 if (( $EUID != 0 )); then
+	echo
+	echo "##########################################################"
 	echo "ERROR: You need to have root privileges to run this script"
+	echo "##########################################################"
 	exit 1
 else
-	echo "#########################################################################################"
-	echo "This script will install ldap server on this machine"
-	echo "#########################################################################################"
+	echo
+	echo "########################################################"
+	echo "This script will install openldap server on this machine"
+	echo "########################################################"
 	sleep 5
 fi
 
 source ./inputs.sh
 INSTALLPACKAGES="openldap-servers openldap-clients migrationtools"
 
-# Comm
+# Add server and client to /etc/hosts file
 sed -i "s/.*$IPSERVER.*/#&/g" $HOSTS
 sed -i "s/.*$IPCLIENT.*/#&/g" $HOSTS
 echo "$IPSERVER $HOSTSERVER" >> $HOSTS
@@ -43,17 +46,26 @@ then
 		systemctl stop slapd
 		systemctl -q disable slapd
 	}
-	echo "Removing packages.........."
-	yum remove -y $INSTALLPACKAGES
+	echo 
+	echo "#################"
+	echo "Removing packages"
+	yum remove -y -q $INSTALLPACKAGES > /dev/null 2>&1
 	rm -rf /etc/openldap/slapd.d/
 	rm -rf /etc/openldap/password
 	rm -rf /var/lib/ldap/
 	rm -rf /root/base.ldif
+	echo "Done"
+	echo "#################"
+	sleep 2
 fi
 
-echo -n "Installing $INSTALLPACKAGES.........."
-yum install -y $INSTALLPACKAGES
+echo
+echo "###########################################################"
+echo "Installing $INSTALLPACKAGES"
+yum install -y -q $INSTALLPACKAGES > /dev/null 2>&1
 echo "Done"
+echo "###########################################################"
+sleep 2
 
 systemctl start slapd
 systemctl -q enable slapd
@@ -66,28 +78,28 @@ chown ldap:ldap /var/lib/ldap/*
 slappasswd -s $PASSWORD -n > /etc/openldap/password
 
 # Edit the database files
-ldapmodify -Q -Y EXTERNAL -H ldapi:/// << EOF
+ldapmodify -Q -Y EXTERNAL -H ldapi:/// << EOF > /dev/null
 dn: olcDatabase={2}hdb,cn=config
 changetype: modify
 replace: olcSuffix
 olcSuffix: dc=$DC1,dc=$DC2
 EOF
 
-ldapmodify -Q -Y EXTERNAL -H ldapi:/// << EOF
+ldapmodify -Q -Y EXTERNAL -H ldapi:/// << EOF > /dev/null
 dn: olcDatabase={2}hdb,cn=config
 changetype: modify
 replace: olcRootDN
 olcRootDN: cn=Manager,dc=$DC1,dc=$DC2
 EOF
 
-ldapmodify -Q -Y EXTERNAL -H ldapi:/// << EOF
+ldapmodify -Q -Y EXTERNAL -H ldapi:/// << EOF > /dev/null
 dn: olcDatabase={2}hdb,cn=config
 changetype: modify
 add: olcRootPW
 olcRootPW: $(</etc/openldap/password)
 EOF
 
-ldapmodify -Q -Y EXTERNAL -H ldapi:/// << EOF
+ldapmodify -Q -Y EXTERNAL -H ldapi:/// << EOF > /dev/null
 dn: olcDatabase={1}monitor,cn=config
 changetype: modify
 replace: olcAccess
@@ -97,26 +109,51 @@ EOF
 
 if [[ $CONFIGURETLS == "yes" ]]
 then
-	# Generate a self-signed certificate and a private key
-	rm -rf /etc/pki/tls/certs/$DC1.key
-	rm -rf /etc/pki/tls/certs/$DC1.crt
-	rm -rf /certs
-	mkdir /certs
-	mkdir /certs/keys
-	cd /certs
-	openssl req -x509 -days 365 -newkey rsa:2048 -nodes \
-	-keyout keys/$DC1.pem \
-	-out $DC1.pem \
-	-subj '/C=US/ST=Texas/L=Houston/O=CMEI/CN=$HOSTSERVER'
+	if [[ $SELFSIGNEDCERT == "yes" ]]
+	then
+		echo
+		echo "####################################"
+		echo "Installing a self signed certificate"
+		rm -rf /etc/openldap/certs/$DC1.*
+		# Generate a self-signed certificate and a private key
+		openssl req -x509 -days 365 -newkey rsa:2048 -nodes \
+		-keyout /etc/openldap/certs/$DC1.key \
+		-out /etc/openldap/certs/$DC1.crt \
+		-subj '/C=US/ST=Texas/L=Houston/O=CMEI/CN=$HOSTSERVER' 
 
-	chown -R ldap:ldap /certs/*
-	chmod 0400 keys/$DC1.pem
+		chown -R ldap:ldap /etc/openldap/certs/*
+	fi
+
+	rm -rf ./cert1.ldif
+	rm -rf ./cert2.ldif
+
+	echo "dn: cn=config" >> ./cert1.ldif
+	echo "changetype: modify" >> ./cert1.ldif
+	echo "replace: olcTLSCertificateFile" >> ./cert1.ldif
+	echo "olcTLSCertificateFile: /etc/openldap/certs/myserver.crt" >> ./cert1.ldif
+
+	echo "dn: cn=config" >> ./cert2.ldif
+	echo "changetype: modify" >> ./cert2.ldif
+	echo "replace: olcTLSCertificateKeyFile" >> ./cert2.ldif
+	echo "olcTLSCertificateKeyFile: /etc/openldap/certs/myserver.key" >> ./cert2.ldif
+
+	ldapmodify -Q -Y EXTERNAL -H ldapi:/// -f ./cert1.ldif > /dev/null 2>&1
+	ldapmodify -Q -Y EXTERNAL -H ldapi:/// -f ./cert2.ldif > /dev/null
+	if [[ $SUCCESS != "0" ]]
+	then
+		ldapmodify -Q -Y EXTERNAL -H ldapi:/// -f ./cert1.ldif > /dev/null
+	fi
+
+	sed -i 's@^SLAPD_URLS.*@SLAPD_URLS="ldapi:/// ldap:/// ldaps:///"@' /etc/sysconfig/slapd
+	echo "Done"
+	echo "####################################"
+	
 fi
 
 # Add minimum schemas
-ldapadd -Y EXTERNAL -H ldapi:// -f /etc/openldap/schema/cosine.ldif
-ldapadd -Y EXTERNAL -H ldapi:// -f /etc/openldap/schema/nis.ldif
-ldapadd -Y EXTERNAL -H ldapi:// -f /etc/openldap/schema/inetorgperson.ldif
+ldapadd -Q -Y EXTERNAL -H ldapi:// -f /etc/openldap/schema/cosine.ldif > /dev/null
+ldapadd -Q -Y EXTERNAL -H ldapi:// -f /etc/openldap/schema/nis.ldif > /dev/null
+ldapadd -Q -Y EXTERNAL -H ldapi:// -f /etc/openldap/schema/inetorgperson.ldif > /dev/null
 
 
 # Create base LDIF
@@ -142,24 +179,24 @@ objectClass: organizationalUnit
 ou: Group
 EOF
 
-ldapadd -x -w $PASSWORD -D "cn=Manager,dc=$DC1,dc=$DC2" -f /root/base.ldif
+ldapadd -x -w $PASSWORD -D "cn=Manager,dc=$DC1,dc=$DC2" -f /root/base.ldif > /dev/null
 
 systemctl restart slapd
 
 # Create a couple of local users
-#mkdir /home/guests
 userdel -rf $USER1 > /dev/null 2>&1
 userdel -rf $USER2 > /dev/null 2>&1
-useradd $USER1
-useradd $USER2
-#useradd -d /home/guests/$USER1 $USER1
-#useradd -d /home/guests/$USER2 $USER2
-echo $USERPW1 | passwd --stdin $USER1
-echo $USERPW2 | passwd --stdin $USER2
+userdel -rf $USER3 > /dev/null 2>&1
+useradd $USER1 > /dev/null
+useradd $USER2 > /dev/null
+useradd $USER3 > /dev/null
+echo $USERPW1 | passwd --stdin $USER1 > /dev/null
+echo $USERPW2 | passwd --stdin $USER2 > /dev/null
+echo $USERPW3 | passwd --stdin $USER3 > /dev/null
 
 # Only moving all users with uid >= 1000
-grep "10[0-9][0-9]" /etc/passwd | sudo tee /root/passwd
-grep "10[0-9][0-9]" /etc/group  | sudo tee /root/group
+grep "10[0-9][0-9]" /etc/passwd | sudo tee /root/passwd > /dev/null
+grep "10[0-9][0-9]" /etc/group  | sudo tee /root/group > /dev/null
 
 if [[ $USEMIGRATIONTOOLS == "yes" ]]
 then
@@ -209,7 +246,7 @@ else
 		then
 		# For users where the password is the same as the time 
 		# of creating the VM, this gives a blank
-        		echo "this is the value of shadow change $U_SHADOW_CHANGE"
+        		#echo "this is the value of shadow change $U_SHADOW_CHANGE"
 			echo "shadowLastChange: $U_SHADOW_CHANGE" >> $U_LDIF
 		fi
         	echo "shadowMin: $U_SHADOW_MIN" >> $U_LDIF
@@ -228,9 +265,8 @@ else
 fi
 
 # Add base config, suers and groups to LDAP DB
-ldapadd -x -w $PASSWORD -D "cn=Manager,dc=$DC1,dc=$DC2" -f /root/base.ldif
-ldapadd -x -w $PASSWORD -D "cn=Manager,dc=$DC1,dc=$DC2" -f /root/users.ldif
-ldapadd -x -w $PASSWORD -D "cn=Manager,dc=$DC1,dc=$DC2" -f /root/groups.ldif
+ldapadd -x -w $PASSWORD -D "cn=Manager,dc=$DC1,dc=$DC2" -f /root/users.ldif > /dev/null
+ldapadd -x -w $PASSWORD -D "cn=Manager,dc=$DC1,dc=$DC2" -f /root/groups.ldif > /dev/null
 
 
 if [[ $DBTESTING  == "yes" ]]
@@ -271,7 +307,6 @@ fi
 systemctl restart slapd
 
 echo
-echo
-echo "#################################################################"
+echo "####################################"
 echo "OpenLDAP server successfully created"
-echo "#################################################################"
+echo "####################################"
