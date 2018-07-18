@@ -1,2 +1,2 @@
-# rhce-ldap
-RHCE related LDAP scripts
+# ldap
+RHCE ldap setup files
