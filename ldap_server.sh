@@ -129,24 +129,21 @@ then
 	fi
 
 	rm -rf ./cert1.ldif
-	rm -rf ./cert2.ldif
 
+	# It seems both the key and the cert have to be part of the same command, otherwise LDAP gives an error
+	# IF run as separate commands then somehow even when the first command errors out, it keeps the info
+	# in memory so the 2nd command can run successfully. After that the 1st command can be run again
+	
 	echo "dn: cn=config" >> ./cert1.ldif
 	echo "changetype: modify" >> ./cert1.ldif
 	echo "replace: olcTLSCertificateFile" >> ./cert1.ldif
 	echo "olcTLSCertificateFile: /etc/openldap/certs/myserver.crt" >> ./cert1.ldif
+	echo "-" >> ./cert1.ldif
+	echo "replace: olcTLSCertificateKeyFile" >> ./cert1.ldif
+	echo "olcTLSCertificateKeyFile: /etc/openldap/certs/myserver.key" >> ./cert1.ldif
 
-	echo "dn: cn=config" >> ./cert2.ldif
-	echo "changetype: modify" >> ./cert2.ldif
-	echo "replace: olcTLSCertificateKeyFile" >> ./cert2.ldif
-	echo "olcTLSCertificateKeyFile: /etc/openldap/certs/myserver.key" >> ./cert2.ldif
-
-	ldapmodify -Q -Y EXTERNAL -H ldapi:/// -f ./cert1.ldif > /dev/null 2>&1
-	ldapmodify -Q -Y EXTERNAL -H ldapi:/// -f ./cert2.ldif > /dev/null
-	if [[ $SUCCESS != "0" ]]
-	then
-		ldapmodify -Q -Y EXTERNAL -H ldapi:/// -f ./cert1.ldif > /dev/null
-	fi
+	ldapmodify -Q -Y EXTERNAL -H ldapi:/// -f ./cert1.ldif
+	
 
 	sed -i 's@^SLAPD_URLS.*@SLAPD_URLS="ldapi:/// ldap:/// ldaps:///"@' /etc/sysconfig/slapd
 	echo "Done"
