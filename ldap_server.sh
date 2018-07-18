@@ -13,6 +13,10 @@ USEMIGRATIONTOOLS="yes"
 # Check if the user and group information was successfully added to the LDAP DB
 #DBTESTING="yes"
 DBTESTING="no"
+
+# Firewalld shoud be installed and running before any changes added for LDAP
+FIREWALL="yes"
+#FIREWALL="no"
 ####################################################################################
 # End of user inputs
 
@@ -267,6 +271,40 @@ fi
 # Add base config, suers and groups to LDAP DB
 ldapadd -x -w $PASSWORD -D "cn=Manager,dc=$DC1,dc=$DC2" -f /root/users.ldif > /dev/null
 ldapadd -x -w $PASSWORD -D "cn=Manager,dc=$DC1,dc=$DC2" -f /root/groups.ldif > /dev/null
+
+if [[ $FIREWALL == "yes" ]]
+then
+	if systemctl -q is-active firewalld
+	then
+		if [[ $CONFIGURETLS == "yes" ]]
+		then
+			echo
+			echo "##############################################"
+			echo "Addings ldaps to the firewall allowed services"
+			firewall-cmd --permanent --remove-service ldap
+			firewall-cmd --permanent --remove-service ldaps
+			firewall-cmd --permanent --add-service ldaps
+			firewall-cmd --reload
+			echo "Done"
+			echo "##############################################"
+		else
+			echo
+			echo "#############################################"
+			echo "Addings ldap to the firewall allowed services"
+			firewall-cmd --permanent --remove-service ldap
+			firewall-cmd --permanent --remove-service ldaps
+			firewall-cmd --permanent --add-service ldap
+			firewall-cmd --reload
+			echo "Done"
+			echo "#############################################"
+		fi
+	else
+		echo
+		echo "####################################################"
+		echo "Firewalld is not active. No changes made to firewall"
+		echo "####################################################"
+	fi
+fi
 
 
 if [[ $DBTESTING  == "yes" ]]
