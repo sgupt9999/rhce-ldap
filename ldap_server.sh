@@ -7,8 +7,8 @@
 PASSWORD="redhat"
 
 # Use migration tools file or a custom script to add users to LDAP database
-#USEMIGRATIONTOOLS="no"
-USEMIGRATIONTOOLS="yes"
+USEMIGRATIONTOOLS="no"
+#USEMIGRATIONTOOLS="yes"
 
 # Check if the user and group information was successfully added to the LDAP DB
 #DBTESTING="yes"
@@ -251,7 +251,17 @@ else
 			echo "shadowLastChange: $U_SHADOW_CHANGE" >> $U_LDIF
 		fi
         	echo "shadowMin: $U_SHADOW_MIN" >> $U_LDIF
-        	echo "shadowMax: $U_SHADOW_MAX" >> $U_LDIF
+        	if [[ $U_SHADOW_MAX ]]
+		then
+			# On Linux academy servers this is coming as blank for USER user
+			# and giving an error when adding to LDAP db
+			# If blank then make it 99999
+			
+			echo "shadowMax: $U_SHADOW_MAX" >> $U_LDIF
+		else
+			echo "shadowMax: 99999" >> $U_LDIF
+		fi
+			
         	echo "shadowWarning: $U_SHADOW_WARNING" >> $U_LDIF
         	echo "loginShell: $U_SHELL" >> $U_LDIF
         	echo "uidNumber: $U_ID" >> $U_LDIF
@@ -278,20 +288,20 @@ then
 			echo
 			echo "##############################################"
 			echo "Addings ldaps to the firewall allowed services"
-			firewall-cmd --permanent --remove-service ldap
-			firewall-cmd --permanent --remove-service ldaps
-			firewall-cmd --permanent --add-service ldaps
-			firewall-cmd --reload
+			firewall-cmd -q --permanent --remove-service ldap
+			firewall-cmd -q --permanent --remove-service ldaps
+			firewall-cmd -q --permanent --add-service ldaps
+			firewall-cmd -q --reload
 			echo "Done"
 			echo "##############################################"
 		else
 			echo
 			echo "#############################################"
 			echo "Addings ldap to the firewall allowed services"
-			firewall-cmd --permanent --remove-service ldap
-			firewall-cmd --permanent --remove-service ldaps
-			firewall-cmd --permanent --add-service ldap
-			firewall-cmd --reload
+			firewall-cmd -q --permanent --remove-service ldap
+			firewall-cmd -q --permanent --remove-service ldaps
+			firewall-cmd -q --permanent --add-service ldap
+			firewall-cmd -q --reload
 			echo "Done"
 			echo "#############################################"
 		fi
