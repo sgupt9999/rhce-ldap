@@ -37,6 +37,8 @@ fi
 
 source ./inputs.sh
 INSTALLPACKAGES="openldap-servers openldap-clients migrationtools"
+INSTALLPACKAGES2="nfs-utils"
+INSTALLPACKAGES3="rpcbind"
 
 # Add server and client to /etc/hosts file
 sed -i "s/.*$IPSERVER.*/#&/g" $HOSTS
@@ -184,13 +186,25 @@ ldapadd -x -w $PASSWORD -D "cn=Manager,dc=$DC1,dc=$DC2" -f /root/base.ldif > /de
 
 systemctl restart slapd
 
-# Create a couple of local users
+# Create a few local users
 userdel -rf $USER1 > /dev/null 2>&1
 userdel -rf $USER2 > /dev/null 2>&1
 userdel -rf $USER3 > /dev/null 2>&1
-useradd $USER1 > /dev/null
-useradd $USER2 > /dev/null
-useradd $USER3 > /dev/null
+
+if [[ $NFSHOSTEDHOMEDIR == "yes" ]]
+then
+	
+	rm -rf $NFSHOMEDIR
+	mkdir $NFSHOMEDIR
+	useradd -d $NFSHOMEDIR/$USER1 $USER1
+	useradd -d $NFSHOMEDIR/$USER2 $USER2
+	useradd -d $NFSHOMEDIR/$USER3 $USER3
+else
+	useradd $USER1  > /dev/null
+	useradd $USER2  > /dev/null
+	useradd $USER3  > /dev/null
+fi
+
 echo $USERPW1 | passwd --stdin $USER1 > /dev/null
 echo $USERPW2 | passwd --stdin $USER2 > /dev/null
 echo $USERPW3 | passwd --stdin $USER3 > /dev/null
@@ -279,6 +293,45 @@ fi
 ldapadd -x -w $PASSWORD -D "cn=Manager,dc=$DC1,dc=$DC2" -f /root/users.ldif > /dev/null
 ldapadd -x -w $PASSWORD -D "cn=Manager,dc=$DC1,dc=$DC2" -f /root/groups.ldif > /dev/null
 
+# This section configures NFs server on this machine if required
+if [[ $NFSHOSTEDHOMEDIR == "yes" ]]
+then
+	if yum list installed nfs-utils > /dev/null 2>&1
+	then
+		systemctl -q is-active nfs && {
+		systemctl -q stop nfs
+		systemctl -q disable nfs
+		}
+	
+		echo 
+		echo "##############################"
+		echo "Removing old copy of nfs-utils"
+		yum remove -y nfs-utils -q > /dev/null
+		rm -rf /etc/exports
+		sleep 3
+		echo "Done"
+		echo "##############################"
+	fi
+
+	echo
+	echo "############################"
+	echo "Installing $INSTALLPACKAGES2 $INSTALLPACKAGES3"
+	yum install -y $INSTALLPACKAGES2 -q > /dev/null
+	yum install -y $INSTALLPACKAGES3 -q > /dev/null
+	echo "Done"
+	echo "############################"
+
+	echo "$NFSHOMEDIR $IPCLIENT(rw,root_squash)" >> /etc/exports
+	exportfs -avr > /dev/null
+
+	systemctl start nfs
+	systemctl start rpcbind
+	systemctl -q enable nfs
+	systemctl -q enable rpcbind
+
+fi
+
+
 if [[ $FIREWALL == "yes" ]]
 then
 	if systemctl -q is-active firewalld
@@ -286,24 +339,34 @@ then
 		if [[ $CONFIGURETLS == "yes" ]]
 		then
 			echo
-			echo "##############################################"
-			echo "Addings ldaps to the firewall allowed services"
+			echo "#############################################"
+			echo "Addins ldaps to the firewall allowed services"
 			firewall-cmd -q --permanent --remove-service ldap
 			firewall-cmd -q --permanent --remove-service ldaps
 			firewall-cmd -q --permanent --add-service ldaps
 			firewall-cmd -q --reload
 			echo "Done"
-			echo "##############################################"
+			echo "#############################################"
 		else
 			echo
-			echo "#############################################"
-			echo "Addings ldap to the firewall allowed services"
+			echo "############################################"
+			echo "Addins ldap to the firewall allowed services"
 			firewall-cmd -q --permanent --remove-service ldap
 			firewall-cmd -q --permanent --remove-service ldaps
 			firewall-cmd -q --permanent --add-service ldap
 			firewall-cmd -q --reload
 			echo "Done"
-			echo "#############################################"
+			echo "############################################"
+		fi
+		if [[ $NFSHOSTEDHOMEDIR == "yes" ]]
+		then
+			echo
+			echo "###########################################"
+			echo "Addins nfs to the firewall allowed services"
+			firewall-cmd -q --permanent --add-service nfs
+			firewall-cmd -q --reload
+			echo "Done"
+			echo "###########################################"
 		fi
 	else
 		echo

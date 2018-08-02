@@ -7,6 +7,7 @@
 ENABLEHOMEDIR="yes"
 #ENABLEHOMEDIR="no"
 
+# the following options if automounting home directories
 AUTOMASTERFILE="/etc/auto.master"
 AUTOFSTIMEOUT=60
 AUTOMAPFILE="/etc/auto.map"
@@ -32,6 +33,7 @@ fi
 
 source ./inputs.sh
 INSTALLPACKAGES1="openldap-clients nss-pam-ldapd"
+INSTALLPACKAGES2="autofs"
 
 if yum list installed nss-pam-ldapd > /dev/null 2>&1
 then
@@ -107,27 +109,51 @@ fi
 
 systemctl restart nslcd
 
+if [[ $NFSHOSTEDHOMEDIR="yes" && $AUTOMOUNT="yes" ]]
+then
+	if yum list installed autofs > /dev/null 2>&1
+	then
+		systemctl -q is-active autofs && {
+		systemctl stop autofs
+		systemctl -q disable autofs
+		}
+
+		echo
+		echo "###########################"
+		echo "Removing old copy of autofs"
+		yum -y remove autofs -q > /dev/null
+		rm -rf /etc/auto.master
+		rm -rf /etc/auto.map
+		echo "Done"
+		echo "###########################"
+	fi
+
+	echo
+	echo "##########################"
+	echo "Installing $INSTALLPACKAGES2"
+	yum -y install $INSTALLPACKAGES2 -q > /dev/null
+	echo "Done"
+	echo "##########################"
+	
+	if ! [[ -d $NFSHOMEDIR ]]
+	then
+		# make the mount directory only if ir doesnt already exist
+		mkdir $NFSHOMEDIR
+		chmod 755 $NFSHOMEDIR
+	fi
+
+	#echo "$NFSHOMEDIR $AUTOMAPFILE --timeout=$AUTOFSTIMEOUT" > $AUTOMASTERFILE
+	sed -i "/misc/a $NFSHOMEDIR $AUTOMAPFILE --timeout=$AUTOFSTIMEOUT" $AUTOMASTERFILE
+	echo "* -fstype=auto $IPSERVER:/$NFSHOMEDIR/&" > $AUTOMAPFILE
+
+
+	systemctl start autofs
+	systemctl -q enable autofs
+	systemctl restart nslcd
+fi
+
+
 echo
 echo "####################################"
 echo "OpenLDAP client successfully created"
 echo "####################################"
-
-exit 1
-
-# Configure Master file
-echo "/home/guests	/etc/auto.map --timeout=$AUTOFSTIMEOUT" > $AUTOMASTERFILE
-# Configure map file
-echo "* -fstype=auto $IPSERVER:/home/&" > $AUTOMAPFILE
-
-
-if [[ $CONFIGURETLS == "yes" ]]
-then
-	scp user@$IPSERVER:/etc/pki/tls/certs/$DC1.key /etc/openldap/certs/
-	authconfig --enableldaptls --update
-fi
-
-systemctl start autofs
-systemctl enable autofs
-systemctl start nslcd
-systemctl enable nslcd
-
