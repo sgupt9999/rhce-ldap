@@ -1,4 +1,3 @@
-#!/bin/bash
 # Common inputs for ldap server and client
 IPSERVER=172.31.30.135
 HOSTSERVER="server.myserver.com"
