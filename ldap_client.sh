@@ -121,7 +121,7 @@ then
 		echo
 		echo "###########################"
 		echo "Removing old copy of autofs"
-		yum -y remove autofs -q > /dev/null
+		yum -y remove autofs -q > /dev/null 2>&1
 		rm -rf /etc/auto.master
 		rm -rf /etc/auto.map
 		echo "Done"
@@ -131,18 +131,14 @@ then
 	echo
 	echo "##########################"
 	echo "Installing $INSTALLPACKAGES2"
-	yum -y install $INSTALLPACKAGES2 -q > /dev/null
+	yum -y install $INSTALLPACKAGES2 -q > /dev/null 2>&1
 	echo "Done"
 	echo "##########################"
-	
-	if ! [[ -d $NFSHOMEDIR ]]
-	then
-		# make the mount directory only if ir doesnt already exist
-		mkdir $NFSHOMEDIR
-		chmod 755 $NFSHOMEDIR
-	fi
 
-	#echo "$NFSHOMEDIR $AUTOMAPFILE --timeout=$AUTOFSTIMEOUT" > $AUTOMASTERFILE
+	rm -rf $NFSHOMEDIR	
+	mkdir $NFSHOMEDIR
+	chmod 755 $NFSHOMEDIR
+
 	sed -i "/misc/a $NFSHOMEDIR $AUTOMAPFILE --timeout=$AUTOFSTIMEOUT" $AUTOMASTERFILE
 	echo "* -fstype=auto $IPSERVER:/$NFSHOMEDIR/&" > $AUTOMAPFILE
 

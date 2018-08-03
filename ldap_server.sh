@@ -306,7 +306,7 @@ then
 		echo 
 		echo "##############################"
 		echo "Removing old copy of nfs-utils"
-		yum remove -y nfs-utils -q > /dev/null
+		yum remove -y nfs-utils -q > /dev/null 2>&1
 		rm -rf /etc/exports
 		sleep 3
 		echo "Done"
@@ -316,8 +316,8 @@ then
 	echo
 	echo "############################"
 	echo "Installing $INSTALLPACKAGES2 $INSTALLPACKAGES3"
-	yum install -y $INSTALLPACKAGES2 -q > /dev/null
-	yum install -y $INSTALLPACKAGES3 -q > /dev/null
+	yum install -y $INSTALLPACKAGES2 -q > /dev/null 2>&1
+	yum install -y $INSTALLPACKAGES3 -q > /dev/null 2>&1
 	echo "Done"
 	echo "############################"
 
@@ -340,7 +340,7 @@ then
 		then
 			echo
 			echo "#############################################"
-			echo "Addins ldaps to the firewall allowed services"
+			echo "Adding ldaps to the firewall allowed services"
 			firewall-cmd -q --permanent --remove-service ldap
 			firewall-cmd -q --permanent --remove-service ldaps
 			firewall-cmd -q --permanent --add-service ldaps
@@ -350,7 +350,7 @@ then
 		else
 			echo
 			echo "############################################"
-			echo "Addins ldap to the firewall allowed services"
+			echo "Adding ldap to the firewall allowed services"
 			firewall-cmd -q --permanent --remove-service ldap
 			firewall-cmd -q --permanent --remove-service ldaps
 			firewall-cmd -q --permanent --add-service ldap
@@ -362,7 +362,7 @@ then
 		then
 			echo
 			echo "###########################################"
-			echo "Addins nfs to the firewall allowed services"
+			echo "Adding nfs to the firewall allowed services"
 			firewall-cmd -q --permanent --add-service nfs
 			firewall-cmd -q --reload
 			echo "Done"
