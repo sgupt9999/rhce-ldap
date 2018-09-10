@@ -1,4 +1,5 @@
 #!/bin/bash
+####################################################################################
 # This script will configure openldap server on Centos and RHEL 7
 # The hostname should be defined as per DC1 and DC2 in the inputs file
 ####################################################################################
@@ -19,6 +20,7 @@ FIREWALL="yes"
 #FIREWALL="no"
 ####################################################################################
 # End of user inputs
+####################################################################################
 
 
 if (( $EUID != 0 )); then
@@ -115,8 +117,25 @@ EOF
 
 if [[ $CONFIGURETLS == "yes" ]]
 then
-	if [[ $SELFSIGNEDCERT == "yes" ]]
+	if [[ $NEWROOT == "yes" ]]
 	then
+		# Create a new root signing authority
+		echo
+		echo "#################################################"
+		echo "Installing a new root CA and a signed certificate"
+
+		rm -rf /etc/openldap/certs/rootca.*
+		rm -rf /etc/openldap/certs/$DC1.*
+
+		openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:4096 -out /etc/openldap/certs/rootca.key
+		chmod 0600 /etc/openldap/certs/rootca.key
+		openssl req -x509 -days 365 -new -key /etc/openldap/certs/rootca.key -subj  "/CN=$HOSTSERVER" -set_serial 100 -out /etc/openldap/certs/rootca.crt 
+
+		openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:4096 -out /etc/openldap/certs/$DC1.key
+		chmod 0600 /etc/openldap/certs/$DC1.key
+		openssl req -new -key /etc/openldap/certs/$DC1.key -subj "/CN=$HOSTSERVER" -out /etc/openldap/certs/$DC1.csr
+		openssl x509 -req -days 365 -set_serial 101 -CA /etc/openldap/certs/rootca.crt -CAkey /etc/openldap/certs/rootca.key -in /etc/openldap/certs/$DC1.csr -out /etc/openldap/certs/$DC1.crt
+	else
 		echo
 		echo "####################################"
 		echo "Installing a self signed certificate"
@@ -127,29 +146,52 @@ then
 		-out /etc/openldap/certs/$DC1.crt \
 		-subj '/C=US/ST=Texas/L=Houston/O=CMEI/CN=$HOSTSERVER' 
 
-		chown -R ldap:ldap /etc/openldap/certs/*
 	fi
 
+	chown -R ldap:ldap /etc/openldap/certs/*
 	rm -rf ./cert1.ldif
 
 	# It seems both the key and the cert have to be part of the same command, otherwise LDAP gives an error
 	# IF run as separate commands then somehow even when the first command errors out, it keeps the info
 	# in memory so the 2nd command can run successfully. After that the 1st command can be run again
 	
-	echo "dn: cn=config" >> ./cert1.ldif
-	echo "changetype: modify" >> ./cert1.ldif
-	echo "replace: olcTLSCertificateFile" >> ./cert1.ldif
-	echo "olcTLSCertificateFile: /etc/openldap/certs/myserver.crt" >> ./cert1.ldif
-	echo "-" >> ./cert1.ldif
-	echo "replace: olcTLSCertificateKeyFile" >> ./cert1.ldif
-	echo "olcTLSCertificateKeyFile: /etc/openldap/certs/myserver.key" >> ./cert1.ldif
+	if [[ $NEWROOT == "yes" ]]
+	then
+		# Extra section if also created a new root signing authority
+		echo "dn: cn=config" >> ./cert1.ldif
+		echo "changetype: modify" >> ./cert1.ldif
+		echo "add: olcTLSCACertificateFile" >> ./cert1.ldif
+		echo "olcTLSCACertificateFile: /etc/openldap/certs/rootca.crt" >> ./cert1.ldif
+		echo "-" >> ./cert1.ldif
+		echo "replace: olcTLSCertificateFile" >> ./cert1.ldif
+		echo "olcTLSCertificateFile: /etc/openldap/certs/$DC1.crt" >> ./cert1.ldif
+		echo "-" >> ./cert1.ldif
+		echo "replace: olcTLSCertificateKeyFile" >> ./cert1.ldif
+		echo "olcTLSCertificateKeyFile: /etc/openldap/certs/$DC1.key" >> ./cert1.ldif
+	else
+		echo "dn: cn=config" >> ./cert1.ldif
+		echo "changetype: modify" >> ./cert1.ldif
+		echo "replace: olcTLSCertificateFile" >> ./cert1.ldif
+		echo "olcTLSCertificateFile: /etc/openldap/certs/$DC1.crt" >> ./cert1.ldif
+		echo "-" >> ./cert1.ldif
+		echo "replace: olcTLSCertificateKeyFile" >> ./cert1.ldif
+		echo "olcTLSCertificateKeyFile: /etc/openldap/certs/$DC1.key" >> ./cert1.ldif
+	fi
 
 	ldapmodify -Q -Y EXTERNAL -H ldapi:/// -f ./cert1.ldif
-	
 
 	sed -i 's@^SLAPD_URLS.*@SLAPD_URLS="ldapi:/// ldap:/// ldaps:///"@' /etc/sysconfig/slapd
 	echo "Done"
 	echo "####################################"
+
+	if [[ $NEWROOTCLIENT == "yes" ]]
+	then
+		# Install the new root on the client machine
+		# Copy the root certificate to /tmp so can be copied by the client
+		rm -rf /tmp/rootca.crt
+		cp /etc/openldap/certs/rootca.crt /tmp/
+		chmod 777 /tmp/rootca.crt
+	fi
 	
 fi
 
@@ -186,7 +228,7 @@ ldapadd -x -w $PASSWORD -D "cn=Manager,dc=$DC1,dc=$DC2" -f /root/base.ldif > /de
 
 systemctl restart slapd
 
-# Create a few local users
+# Create new local users
 userdel -rf $USER1 > /dev/null 2>&1
 userdel -rf $USER2 > /dev/null 2>&1
 userdel -rf $USER3 > /dev/null 2>&1

@@ -1,8 +1,13 @@
 #!/bin/bash
+########################################################################################
 # This script will configure openldap client on Centos/RHEL 7 with diff security options
-####################################################################################
+# If using TLS, then currently the option for using a new root CA is not working
+# The setup gets completed on the server side, but when the CA cert is installed on
+# the client, then the connection doesnt got through. Not sure what the problem is
+# yet
+########################################################################################
 # Start of user inputs
-####################################################################################
+########################################################################################
 
 ENABLEHOMEDIR="yes"
 #ENABLEHOMEDIR="no"
@@ -12,8 +17,9 @@ AUTOMASTERFILE="/etc/auto.master"
 AUTOFSTIMEOUT=60
 AUTOMAPFILE="/etc/auto.map"
 
-####################################################################################
+########################################################################################
 # End of user inputs
+########################################################################################
 
 
 if (( $EUID != 0 )); then
@@ -95,16 +101,32 @@ else
 	fi
 fi
 
-if [[ $CONFIGURETLS == "yes" ]] && [[ $SELFSIGNEDCERT == "yes" ]]
+if [[ $CONFIGURETLS == "yes" ]]
 then
-	# This will disable the certificate validation done by clients as we are
-	# using a self signed cert
-	echo
-	echo "##############################################################"
-	echo "Disabling certification validation for self signed certificate"
-	sed -i '/tls_reqcert/a tls_reqcert allow' /etc/nslcd.conf
-	echo "Done"
-	echo "##############################################################"
+	if [[ $NEWROOTCLIENT == "yes" ]]
+	then
+		# Copy the new root CA from the server and enable TLS
+		# This option is currently not working
+		echo 
+		echo "##################################################"
+		echo "Installing the new root CA certficate on this machine"
+		rm -rf /etc/openldap/cacerts/rootca.*
+		scp $SCPUSER@$IPSERVER:/tmp/rootca.crt /etc/openldap/cacerts/rootca.pem
+		chown 644 /etc/openldap/cacerts/rootca.pem
+		restorecon /etc/openldap/cacerts/rootca.pem
+		authconfig --enableldaptls --update
+		echo "Done"
+		echo "##################################################"
+	else
+		# This will disable the certificate validation done by clients as we are
+		# using a self signed cert
+		echo
+		echo "##############################################################"
+		echo "Disabling certification validation for self signed certificate"
+		sed -i '/tls_reqcert/a tls_reqcert allow' /etc/nslcd.conf
+		echo "Done"
+		echo "##############################################################"
+	fi
 fi
 
 systemctl restart nslcd
