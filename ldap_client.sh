@@ -1,10 +1,8 @@
 #!/bin/bash
 ########################################################################################
 # This script will configure openldap client on Centos/RHEL 7 with diff security options
-# If using TLS, then currently the option for using a new root CA is not working
-# The setup gets completed on the server side, but when the CA cert is installed on
-# the client, then the connection doesnt got through. Not sure what the problem is
-# yet
+# Can use self-signed server certficate and connect on ldaps
+# or can use new root certificate and connect on ldap
 ########################################################################################
 # Start of user inputs
 ########################################################################################
@@ -76,47 +74,55 @@ if [[ $ENABLEHOMEDIR == "yes"  ]]
 then
 	if [[ $CONFIGURETLS == "yes" ]]
 	then
-		authconfig --disableldap --disableldapauth --ldapserver=ldaps://$IPSERVER \
-		--ldapbasedn="dc=$DC1,dc=$DC2" --disablemkhomedir --enableldaptls --update
-		authconfig --enableldap --enableldapauth --ldapserver=ldaps://$IPSERVER \
-		--ldapbasedn="dc=$DC1,dc=$DC2" --enablemkhomedir --disableldaptls --update
-	else	
-		authconfig --disableldap --disableldapauth --ldapserver=ldap://$IPSERVER \
-		--ldapbasedn="dc=$DC1,dc=$DC2" --disablemkhomedir --update
-		authconfig --enableldap --enableldapauth --ldapserver=ldap://$IPSERVER \
-		--ldapbasedn=dc="$DC1,dc=$DC2" --enablemkhomedir --update
+		if [[ $NEWROOT == "no" ]]
+		then
+			# using self signed certificate. Connect on ldaps
+			authconfig --enableldap --enableldapauth --ldapserver=ldaps://$HOSTSERVER \
+			--ldapbasedn="dc=$DC1,dc=$DC2" --enablemkhomedir --disableldaptls --update
+		else
+			# using a new root certificate. Connect on ldap and enable TLS
+			authconfig --enableldap --enableldapauth --ldapserver=ldap://$HOSTSERVER \
+			--ldapbasedn="dc=$DC1,dc=$DC2" --enablemkhomedir --enableldaptls --update
+		fi
+	else
+		# No certificates. Connect on ldap
+		authconfig --enableldap --enableldapauth --ldapserver=ldap://$HOSTSERVER \
+		--ldapbasedn="dc=$DC1,dc=$DC2" --enablemkhomedir --update
 	fi
 else
 	if [[ $CONFIGURETLS == "yes" ]]
 	then
-		authconfig --disableldap --disableldapauth --ldapserver=ldaps://$IPSERVER \
-		--ldapbasedn="dc=$DC1,dc=$DC2" --disablemkhomedir --enableldaptls --update
-		authconfig --enableldap --enableldapauth --ldapserver=ldaps://$IPSERVER \
-		--ldapbasedn="dc=$DC1,dc=$DC2" --disableldaptls --update
+		if [[ $NEWROOT == "no" ]]
+		then
+			# using self signed certificate. Connect on ldaps
+			authconfig --enableldap --enableldapauth --ldapserver=ldaps://$HOSTSERVER \
+			--ldapbasedn="dc=$DC1,dc=$DC2" --disableldaptls --update
+		else
+			# using a new root certificate. Connect on ldap and enable TLS
+			authconfig --enableldap --enableldapauth --ldapserver=ldap://$HOSTSERVER \
+			--ldapbasedn="dc=$DC1,dc=$DC2" --enableldaptls --update
+		fi
 	else
-		authconfig --disableldap --disableldapauth --ldapserver=$IPSERVER \
-		--ldapbasedn="dc=$DC1,dc=$DC2" --disablemkhomedir --update
-		authconfig --enableldap --enableldapauth --ldapserver=$IPSERVER \
+		# No certificates. Connect on ldap
+		authconfig --enableldap --enableldapauth --ldapserver=ldap://$HOSTSERVER \
 		--ldapbasedn="dc=$DC1,dc=$DC2" --update
 	fi
 fi
 
 if [[ $CONFIGURETLS == "yes" ]]
 then
-	if [[ $NEWROOTCLIENT == "yes" ]]
+	if [[ $NEWROOT == "yes" ]]
 	then
-		# Copy the new root CA from the server and enable TLS
-		# This option is currently not working
+		# Copy the new root CA from the server
 		echo 
-		echo "##################################################"
-		echo "Installing the new root CA certficate on this machine"
+		echo "###############################################################################"
+		echo "Installing the new root CA certficate on this machine. Need to copy from server"
 		rm -rf /etc/openldap/cacerts/rootca.*
 		scp $SCPUSER@$IPSERVER:/tmp/rootca.crt /etc/openldap/cacerts/rootca.pem
 		chown 644 /etc/openldap/cacerts/rootca.pem
 		restorecon /etc/openldap/cacerts/rootca.pem
-		authconfig --enableldaptls --update
 		echo "Done"
-		echo "##################################################"
+		echo "###############################################################################"
 	else
 		# This will disable the certificate validation done by clients as we are
 		# using a self signed cert
@@ -131,7 +137,7 @@ fi
 
 systemctl restart nslcd
 
-if [[ $NFSHOSTEDHOMEDIR="yes" && $AUTOMOUNT="yes" ]]
+if [[ $NFSHOSTEDHOMEDIR == "yes" && $AUTOMOUNT == "yes" ]]
 then
 	if yum list installed autofs > /dev/null 2>&1
 	then

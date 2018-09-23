@@ -129,13 +129,14 @@ then
 
 		openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:4096 -out /etc/openldap/certs/rootca.key
 		chmod 0600 /etc/openldap/certs/rootca.key
-		openssl req -x509 -days 365 -new -key /etc/openldap/certs/rootca.key -subj  "/CN=$HOSTSERVER" -set_serial 100 -out /etc/openldap/certs/rootca.crt 
+		openssl req -x509 -days 365 -new -key /etc/openldap/certs/rootca.key -subj  "/CN=$HOSTSERVER/O=$ORGANIZATION/emailAddress=$ADMINEMAIL" -set_serial 100 -out /etc/openldap/certs/rootca.crt # Creating a new root cert
 
 		openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:4096 -out /etc/openldap/certs/$DC1.key
 		chmod 0600 /etc/openldap/certs/$DC1.key
-		openssl req -new -key /etc/openldap/certs/$DC1.key -subj "/CN=$HOSTSERVER" -out /etc/openldap/certs/$DC1.csr
+		openssl req -new -key /etc/openldap/certs/$DC1.key -subj "/CN=$HOSTSERVER/emailAddress=$ADMINEMAIL" -out /etc/openldap/certs/$DC1.csr
 		openssl x509 -req -days 365 -set_serial 101 -CA /etc/openldap/certs/rootca.crt -CAkey /etc/openldap/certs/rootca.key -in /etc/openldap/certs/$DC1.csr -out /etc/openldap/certs/$DC1.crt
 	else
+		# Create a self-signed certificate
 		echo
 		echo "####################################"
 		echo "Installing a self signed certificate"
@@ -144,7 +145,7 @@ then
 		openssl req -x509 -days 365 -newkey rsa:2048 -nodes \
 		-keyout /etc/openldap/certs/$DC1.key \
 		-out /etc/openldap/certs/$DC1.crt \
-		-subj '/C=US/ST=Texas/L=Houston/O=CMEI/CN=$HOSTSERVER' 
+		-subj '/CN=$HOSTSERVER/emailAddress=$ADMINEMAIL' 
 
 	fi
 
@@ -184,7 +185,7 @@ then
 	echo "Done"
 	echo "####################################"
 
-	if [[ $NEWROOTCLIENT == "yes" ]]
+	if [[ $NEWROOT == "yes" ]]
 	then
 		# Install the new root on the client machine
 		# Copy the root certificate to /tmp so can be copied by the client
@@ -378,8 +379,9 @@ if [[ $FIREWALL == "yes" ]]
 then
 	if systemctl -q is-active firewalld
 	then
-		if [[ $CONFIGURETLS == "yes" ]]
+		if [[ $CONFIGURETLS == "yes"  && $NEWROOT == "no" ]]
 		then
+			# Add ldaps for self signed certifcates
 			echo
 			echo "#############################################"
 			echo "Adding ldaps to the firewall allowed services"
@@ -390,6 +392,7 @@ then
 			echo "Done"
 			echo "#############################################"
 		else
+			# Add ldap for new root certificate or no TLS
 			echo
 			echo "############################################"
 			echo "Adding ldap to the firewall allowed services"
