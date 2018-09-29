@@ -121,6 +121,8 @@ then
 		scp $SCPUSER@$IPSERVER:/tmp/rootca.crt /etc/openldap/cacerts/rootca.pem
 		chown 644 /etc/openldap/cacerts/rootca.pem
 		restorecon /etc/openldap/cacerts/rootca.pem
+		authconfig --disableldapauth --update
+		authconfig --enableldapauth --update
 		echo "Done"
 		echo "###############################################################################"
 	else
