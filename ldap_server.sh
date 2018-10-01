@@ -2,10 +2,20 @@
 ####################################################################################
 # This script will configure openldap server on Centos and RHEL 7
 # The hostname should be defined as per DC1 and DC2 in the inputs file
+# Adding option for kerberos authentication
 ####################################################################################
 # Start of user inputs
 ####################################################################################
 PASSWORD="redhat"
+
+# Kerberos options
+KDCADMFILE="/var/kerberos/krb5kdc/kadm5.acl"
+KDCCONFFILE="/var/kerberos/krb5kdc/kdc.conf"
+KRBCONFFILE="/etc/krb5.conf"
+KRBCONFBKFILE="/etc/krb5_backup.conf"
+KDCDBPASSWORD="redhat"
+KDCROOTPASSWD="redhat"
+
 
 # Use migration tools file or a custom script to add users to LDAP database
 USEMIGRATIONTOOLS="no"
@@ -41,6 +51,7 @@ source ./inputs.sh
 INSTALLPACKAGES="openldap-servers openldap-clients migrationtools"
 INSTALLPACKAGES2="nfs-utils"
 INSTALLPACKAGES3="rpcbind"
+INSTALLPACKAGES4="krb5-server"
 
 # Add server and client to /etc/hosts file
 sed -i "s/.*$IPSERVER.*/#&/g" $HOSTS
@@ -248,9 +259,13 @@ else
 	useradd $USER3  > /dev/null
 fi
 
-echo $USERPW1 | passwd --stdin $USER1 > /dev/null
-echo $USERPW2 | passwd --stdin $USER2 > /dev/null
-echo $USERPW3 | passwd --stdin $USER3 > /dev/null
+if [[ $LDAPPASSWORD != "no" ]]
+then
+	# If forcing Kerberos password for ssh then not set passwords in /etc/shadow
+	echo $LDAPUSERPW1 | passwd --stdin $USER1 > /dev/null
+	echo $LDAPUSERPW2 | passwd --stdin $USER2 > /dev/null
+	echo $LDAPUSERPW3 | passwd --stdin $USER3 > /dev/null
+fi
 
 # Only moving all users with uid >= 1000
 grep "10[0-9][0-9]" /etc/passwd | sudo tee /root/passwd > /dev/null
@@ -413,6 +428,16 @@ then
 			echo "Done"
 			echo "###########################################"
 		fi
+		if [[ $KERBEROSAUTH == "yes" ]]
+		then
+			echo
+			echo "################################################"
+			echo "Adding Kerberos to the firewall allowed services"
+			firewall-cmd -q --permanent --add-service kerberos
+			firewall-cmd -q --reload
+			echo "Done"
+			echo "################################################"
+		fi
 	else
 		echo
 		echo "####################################################"
@@ -455,6 +480,99 @@ then
 	sleep 5
 	ldapsearch -x objectClass=top -b ou=Group,dc=$DC1,dc=$DC2
 	echo "############################################################"
+fi
+
+if [[ $KERBEROSAUTH == "yes" ]]
+then
+	###############################################################################
+	# This is the section for Kerberos installation. Use Kerberos instead of LDAP
+	###############################################################################
+
+	sed -i "s/.*$HOSTKDC/#&/g" $HOSTS
+	echo "$IPKDC $HOSTKDC" >> $HOSTS
+
+	if yum list installed krb5-server > /dev/null 2>&1
+	then
+		systemctl is-active -q krb5kdc && {
+			systemctl stop krb5kdc
+			systemctl -q disable krb5kdc
+		}
+
+		systemctl is-active -q kadmin && {
+			systemctl stop kadmin
+			systemctl -q disable kadmin
+		}
+		echo
+		echo "####################"
+		echo "Removing $INSTALLPACKAGES4"
+		yum -y -q remove $INSTALLPACKAGES4 > /dev/null 2>&1
+		rm -rf /var/kerberos/krb5kdc
+		echo "Done"
+		echo "####################"
+	fi
+
+	echo 
+	echo "######################"
+	echo "Installing $INSTALLPACKAGES4"
+	yum -y -q install $INSTALLPACKAGES4 > /dev/null 2>&1
+	echo "Done"
+	echo "######################"
+
+	echo 
+	echo "########################"
+	echo "Updating Kerberos config"
+	sed -i "s/EXAMPLE.COM/$REALM/" $KDCCONFFILE
+	sed -i "s/EXAMPLE.COM/$REALM/" $KDCADMFILE
+
+	# This file is installed by krb5-libs which comes pre-installed. Make a backup if one doesnt already
+	# exist
+	if [ -f $KRBCONFBKFILE ]
+	then
+		cp -f $KRBCONFBKFILE $KRBCONFFILE
+	else
+		cp -f $KRBCONFFILE $KRBCONFBKFILE
+	fi
+
+	# Update krb5.conf file
+	sed -i "s/#//g" $KRBCONFFILE
+	sed -i "s/EXAMPLE.COM/$REALM/g" $KRBCONFFILE
+	sed -i "s/kerberos.example.com/$HOSTKDC/g" $KRBCONFFILE
+	sed -i "s/example.com/$DOMAIN/g" $KRBCONFFILE
+
+	kdb5_util create -s -P $KDCDBPASSWORD -r $REALM > /dev/null 2>&1
+
+	systemctl -q enable --now krb5kdc
+	systemctl -q enable --now kadmin
+
+
+	kadmin.local -q "addprinc -pw $KDCROOTPASSWD root/admin" > /dev/null 2>&1
+	kadmin.local -q "addprinc -pw $KERBEROSUSERPW1 $USER1" > /dev/null 2>&1
+	kadmin.local -q "addprinc -pw $KERBEROSUSERPW2 $USER2" > /dev/null 2>&1
+	kadmin.local -q "addprinc -pw $KERBEROSUSERPW3 $USER3" > /dev/null 2>&1
+
+	rm -f $SERVERKEYTABFILE
+	rm -f $CLIENTKEYTABFILE
+
+	for SERVICE in ${SERVICES[@]}
+	do
+		kadmin.local -q "delprinc -force $SERVICE/$HOSTSERVER" > /dev/null 2>&1
+		kadmin.local -q "addprinc -randkey $SERVICE/$HOSTSERVER" > /dev/null 2>&1
+		kadmin.local -q "ktadd -k $SERVERKEYTABFILE $SERVICE/$HOSTSERVER" > /dev/null 2>&1
+		kadmin.local -q "delprinc -force $SERVICE/$HOSTCLIENT" > /dev/null 2>&1
+		kadmin.local -q "addprinc -randkey $SERVICE/$HOSTCLIENT" > /dev/null 2>&1
+		kadmin.local -q "ktadd -k $CLIENTKEYTABFILE $SERVICE/$HOSTCLIENT" > /dev/null 2>&1
+	done
+
+	chmod 600 $SERVERKEYTABFILE
+	chmod 777 $CLIENTKEYTABFILE # So it can be copied by the client
+
+	systemctl restart krb5kdc
+	systemctl restart kadmin
+
+
+	echo "Done"
+	echo "########################"
+	
 fi
 
 systemctl restart slapd
