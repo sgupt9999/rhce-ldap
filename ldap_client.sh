@@ -41,7 +41,7 @@ fi
 
 source ./inputs.sh
 INSTALLPACKAGES1="openldap-clients nss-pam-ldapd"
-INSTALLPACKAGES2="autofs"
+INSTALLPACKAGES2="autofs nfs-utils"
 INSTALLPACKAGES3="krb5-workstation pam_krb5"
 
 if yum list installed nss-pam-ldapd > /dev/null 2>&1

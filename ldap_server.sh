@@ -379,13 +379,13 @@ then
 	echo "Done"
 	echo "############################"
 
-	echo "$NFSHOMEDIR $IPCLIENT(rw,root_squash)" >> /etc/exports
-	exportfs -avr > /dev/null
+	echo "$NFSHOMEDIR $IPCLIENT(rw,root_squash)" > /etc/exports
+	systemctl -q enable --now nfs
+	systemctl -q enable --now rpcbind
+	exportfs -avr >> /dev/null
 
-	systemctl start nfs
-	systemctl start rpcbind
-	systemctl -q enable nfs
-	systemctl -q enable rpcbind
+	systemctl restart nfs
+	systemctl restart rpcbind
 
 fi
 

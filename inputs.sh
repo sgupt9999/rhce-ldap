@@ -1,9 +1,9 @@
 # Common inputs for ldap server and client
-IPSERVER=172.31.125.183
-HOSTSERVER="garfield99991.mylabserver.com"
-IPCLIENT=172.31.111.30
-HOSTCLIENT="garfield99992.mylabserver.com"
-SCPUSER="user" # username used to copy new root certificate from server to client
+IPSERVER=172.31.9.4
+HOSTSERVER="server.mylabserver.com"
+IPCLIENT=172.31.10.111
+HOSTCLIENT="client.mylabserver.com"
+SCPUSER="ec2-user" # username used to copy new root certificate from server to client
 HOSTS=/etc/hosts
 DC1="mylabserver"
 DC2="com"
@@ -13,8 +13,8 @@ KERBEROSAUTH="yes" # Use kerberos instead of LDAP for authentication
 LDAPPASSWORD="yes" # Only have Kerberos password for ssh logins
 REALM="MYLABSERVER.COM"
 DOMAIN="mylabserver.com"
-IPKDC=172.31.125.183
-HOSTKDC="garfield99991.mylabserver.com"
+IPKDC=172.31.9.4
+HOSTKDC="server.mylabserver.com"
 SERVICES=(host)
 SERVERKEYTABFILE="/etc/krb5.keytab"
 CLIENTKEYTABFILE="/tmp/1.keytab"
@@ -40,5 +40,5 @@ ORGANIZATION="New Root Agency" # This and email information needs to be added to
 # All automount options
 AUTOMOUNT="yes" # If want to automount the home directories
 NFSHOSTEDHOMEDIR="yes" # The server hosts the home directory
-NFSHOMEDIR="/nfs-share103" # User home directory if being mounted from server
+NFSHOMEDIR="/nfs-share6" # User home directory if being mounted from server
 
